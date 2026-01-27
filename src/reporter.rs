@@ -1,5 +1,4 @@
-use difig::FileArtifact;
-use difig::ForensicReport;
+use difig::{FileArtifact, ForensicReport, TimelineEvent};
 use serde_json;
 use std::fs;
 use std::path::Path;
@@ -18,6 +17,23 @@ impl Reporter {
     ) -> ForensicReport {
         let total_bytes: u64 = artifacts.iter().map(|a| a.size).sum();
         let files_with_errors = artifacts.iter().filter(|a| a.error.is_some()).count();
+        let signature_warnings = artifacts.iter().filter(|a| a.signature_warning).count();
+        let yara_matches_found: usize = artifacts.iter().map(|a| a.yara_matches.len()).sum();
+        let high_entropy_files = artifacts
+            .iter()
+            .filter(|a| a.entropy_score.map(|e| e > 7.5).unwrap_or(false))
+            .count();
+        let browser_artifacts_found = artifacts
+            .iter()
+            .filter(|a| a.browser_artifact.is_some())
+            .count();
+        let lnk_files_analyzed = artifacts.iter().filter(|a| a.lnk_data.is_some()).count();
+
+        let mut timeline: Vec<TimelineEvent> = Vec::new();
+        for artifact in &artifacts {
+            timeline.extend(artifact.timeline_events.clone());
+        }
+        timeline.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
 
         let mut report = ForensicReport::new(
             env!("CARGO_PKG_VERSION").to_string(),
@@ -27,7 +43,13 @@ impl Reporter {
         report.total_files_scanned = artifacts.len();
         report.total_bytes_scanned = total_bytes;
         report.files_with_errors = files_with_errors;
+        report.signature_warnings = signature_warnings;
+        report.yara_matches_found = yara_matches_found;
+        report.high_entropy_files = high_entropy_files;
+        report.browser_artifacts_found = browser_artifacts_found;
+        report.lnk_files_analyzed = lnk_files_analyzed;
         report.artifacts = artifacts;
+        report.timeline = timeline;
 
         report
     }
@@ -59,6 +81,104 @@ impl Reporter {
             Ok(path)
         }
     }
+
+    pub fn generate_timeline_csv(
+        &self,
+        timeline: &[TimelineEvent],
+        output_path: &Path,
+    ) -> Result<(), String> {
+        let mut csv = String::from("timestamp,event_type,source,description\n");
+
+        for event in timeline {
+            let desc = event.description.replace('"', "\"");
+            csv.push_str(&format!(
+                "{},{},{},\"{}\"\n",
+                event.timestamp, event.event_type, event.source, desc
+            ));
+        }
+
+        fs::write(output_path, csv).map_err(|e| format!("Failed to write CSV: {}", e))?;
+        Ok(())
+    }
+
+    pub fn save_timeline_path(
+        &self,
+        timeline: &[TimelineEvent],
+        output_dir: String,
+    ) -> Result<std::path::PathBuf, String> {
+        let path = Path::new(&output_dir).to_path_buf();
+        let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
+        let filename = format!("timeline_{}.csv", timestamp);
+        let full_path = path.join(filename);
+        self.generate_timeline_csv(timeline, &full_path)?;
+        Ok(full_path)
+    }
+
+    pub fn generate_summary(&self, report: &ForensicReport) -> String {
+        let mut summary = String::new();
+
+        summary.push_str("=== FORENSIC SCAN SUMMARY ===\n\n");
+        summary.push_str(&format!("Tool Version:    {}\n", report.tool_version));
+        summary.push_str(&format!("Scan Timestamp:  {}\n", report.scan_timestamp));
+        summary.push_str(&format!("Target Path:     {}\n", report.target_path));
+        summary.push_str(&format!(
+            "Total Files:     {}\n",
+            report.total_files_scanned
+        ));
+        summary.push_str(&format!(
+            "Total Bytes:     {}\n",
+            report.total_bytes_scanned
+        ));
+        summary.push_str(&format!(
+            "Errors:          {}\n\n",
+            report.files_with_errors
+        ));
+
+        summary.push_str("=== ANOMALIES ===\n");
+        summary.push_str(&format!(
+            "Signature Warnings: {}\n",
+            report.signature_warnings
+        ));
+        summary.push_str(&format!(
+            "YARA Matches:       {}\n",
+            report.yara_matches_found
+        ));
+        summary.push_str(&format!(
+            "High Entropy Files: {}\n",
+            report.high_entropy_files
+        ));
+        summary.push_str(&format!(
+            "Browser Artifacts:  {}\n",
+            report.browser_artifacts_found
+        ));
+        summary.push_str(&format!(
+            "LNK Files Analyzed: {}\n\n",
+            report.lnk_files_analyzed
+        ));
+
+        let high_severity: usize = report
+            .artifacts
+            .iter()
+            .filter(|a| a.yara_matches.iter().any(|m| m.severity == "high"))
+            .count();
+
+        if high_severity > 0 {
+            summary.push_str(&format!(
+                "WARNING: {} files with HIGH severity YARA matches!\n",
+                high_severity
+            ));
+        }
+
+        let hidden_count = report.artifacts.iter().filter(|a| a.is_hidden).count();
+        if hidden_count > 0 {
+            summary.push_str(&format!(
+                "Hidden Files: {} (may warrant investigation)\n",
+                hidden_count
+            ));
+        }
+
+        summary
+    }
 }
 
 #[cfg(test)]
@@ -78,14 +198,26 @@ mod tests {
             path: test_file,
             size: 4,
             sha256_hash: Some(String::from("abc123")),
+            sha1_hash: None,
+            md5_hash: None,
             modified_time: String::from("2024-01-01T00:00:00Z"),
             created_time: None,
             accessed_time: None,
+            changed_time: None,
             file_type: String::from("txt"),
+            actual_type: String::new(),
             entropy_score: None,
             permissions: None,
             is_hidden: false,
+            is_symbolic_link: false,
             error: None,
+            signature_warning: false,
+            signature_details: None,
+            yara_matches: Vec::new(),
+            steganography_analysis: None,
+            browser_artifact: None,
+            lnk_data: None,
+            timeline_events: Vec::new(),
         }];
 
         let report = reporter.generate_report(artifacts, temp_dir.path());
@@ -109,5 +241,45 @@ mod tests {
 
         let content = fs::read_to_string(&output_file).unwrap();
         assert!(content.contains("ForensicReport") || content.contains("tool_version"));
+    }
+
+    #[test]
+    fn test_timeline_csv() {
+        let temp_dir = TempDir::new("difig").unwrap();
+        let output_file = temp_dir.path().join("timeline.csv");
+
+        let reporter = Reporter::new();
+        let timeline = vec![
+            TimelineEvent {
+                timestamp: String::from("2024-01-01T10:00:00Z"),
+                event_type: String::from("created"),
+                source: String::from("filesystem"),
+                description: String::from("Test file created"),
+            },
+            TimelineEvent {
+                timestamp: String::from("2024-01-01T11:00:00Z"),
+                event_type: String::from("modified"),
+                source: String::from("filesystem"),
+                description: String::from("Test file modified"),
+            },
+        ];
+
+        let result = reporter.generate_timeline_csv(&timeline, &output_file);
+        assert!(result.is_ok());
+        assert!(output_file.exists());
+
+        let content = fs::read_to_string(&output_file).unwrap();
+        assert!(content.contains("created"));
+        assert!(content.contains("modified"));
+    }
+
+    #[test]
+    fn test_summary_generation() {
+        let reporter = Reporter::new();
+        let report = ForensicReport::new(String::from("0.2.0"), String::from("/test"));
+
+        let summary = reporter.generate_summary(&report);
+        assert!(summary.contains("FORENSIC SCAN SUMMARY"));
+        assert!(summary.contains("0.2.0"));
     }
 }

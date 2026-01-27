@@ -16,7 +16,7 @@ use crate::scanner::Scanner;
 #[derive(Parser)]
 #[command(name = "difig")]
 #[command(author = "difig Developers")]
-#[command(version = "0.1.0")]
+#[command(version = "0.2.0")]
 #[command(about = "Digital Investigation & Forensics Intelligence Gear", long_about = None)]
 struct Cli {
     #[command(subcommand)]
@@ -39,6 +39,24 @@ enum Commands {
         #[arg(short, long)]
         all: bool,
 
+        #[arg(long)]
+        verify_signatures: bool,
+
+        #[arg(long)]
+        yara: bool,
+
+        #[arg(long)]
+        stego: bool,
+
+        #[arg(long)]
+        browser: bool,
+
+        #[arg(long)]
+        lnk: bool,
+
+        #[arg(long)]
+        timeline: bool,
+
         #[arg(value_name = "TARGET_PATH")]
         target_path: Option<PathBuf>,
     },
@@ -56,6 +74,12 @@ fn main() {
             quick,
             entropy,
             all,
+            verify_signatures,
+            yara,
+            stego,
+            browser,
+            lnk,
+            timeline,
             target_path,
         } => {
             let target = match target_path {
@@ -76,7 +100,19 @@ fn main() {
                 std::process::exit(1);
             }
 
-            run_scan(&target, output.clone(), *quick, *entropy, *all);
+            run_scan(
+                &target,
+                output.clone(),
+                *quick,
+                *entropy,
+                *all,
+                *verify_signatures,
+                *yara,
+                *stego,
+                *browser,
+                *lnk,
+                *timeline,
+            );
         }
 
         Commands::Version => {
@@ -93,9 +129,15 @@ fn run_scan(
     quick_mode: bool,
     calculate_entropy: bool,
     show_hidden: bool,
+    verify_signatures: bool,
+    scan_yara: bool,
+    scan_stego: bool,
+    scan_browser: bool,
+    scan_lnk: bool,
+    generate_timeline: bool,
 ) {
     println!("==========================================");
-    println!("  DIFIG - Digital Forensics Scanner");
+    println!("  DIFIG - Digital Forensics Scanner v0.2.0");
     println!("==========================================");
     println!();
     println!("Target: {}", target.display());
@@ -108,7 +150,7 @@ fn run_scan(
         }
     );
     println!(
-        "Entropy: {}",
+        "Entropy:           {}",
         if calculate_entropy {
             "Enabled"
         } else {
@@ -116,7 +158,39 @@ fn run_scan(
         }
     );
     println!(
-        "Hidden files: {}",
+        "Signature Check:   {}",
+        if verify_signatures {
+            "Enabled"
+        } else {
+            "Disabled"
+        }
+    );
+    println!(
+        "YARA Scanning:     {}",
+        if scan_yara { "Enabled" } else { "Disabled" }
+    );
+    println!(
+        "Stego Detection:   {}",
+        if scan_stego { "Enabled" } else { "Disabled" }
+    );
+    println!(
+        "Browser Artifacts: {}",
+        if scan_browser { "Enabled" } else { "Disabled" }
+    );
+    println!(
+        "LNK Analysis:      {}",
+        if scan_lnk { "Enabled" } else { "Disabled" }
+    );
+    println!(
+        "Timeline CSV:      {}",
+        if generate_timeline {
+            "Enabled"
+        } else {
+            "Disabled"
+        }
+    );
+    println!(
+        "Hidden files:      {}",
         if show_hidden { "Included" } else { "Excluded" }
     );
     println!();
@@ -165,6 +239,11 @@ fn run_scan(
         &files_clone,
         calculate_hashes,
         calculate_entropy,
+        verify_signatures,
+        scan_yara,
+        scan_stego,
+        scan_browser,
+        scan_lnk,
         Some(progress_tx),
     );
 
@@ -193,6 +272,18 @@ fn run_scan(
         }
     }
 
+    if generate_timeline {
+        let timeline_path = reporter.save_timeline_path(&report.timeline, String::from("."));
+        match timeline_path {
+            Ok(path) => {
+                println!("      Timeline saved to: {}", path.display());
+            }
+            Err(e) => {
+                eprintln!("Error saving timeline: {}", e);
+            }
+        }
+    }
+
     println!();
     println!("[4/4] Scan Summary");
     println!("==========================================");
@@ -203,35 +294,55 @@ fn run_scan(
     );
     println!("Files with errors:      {}", report.files_with_errors);
     println!(
-        "Hash calculation:       {}",
-        if calculate_hashes { "Yes" } else { "No" }
-    );
-    println!(
-        "Entropy analysis:       {}",
-        if calculate_entropy { "Yes" } else { "No" }
-    );
-    println!(
         "Scan duration:          {}",
         HumanDuration(start_time.elapsed())
     );
     println!("==========================================");
 
-    let high_entropy_count: usize = artifacts
+    println!();
+    println!("=== ANOMALIES ===");
+    println!("Signature Warnings:     {}", report.signature_warnings);
+    println!("YARA Matches:           {}", report.yara_matches_found);
+    println!("High Entropy Files:     {}", report.high_entropy_files);
+    println!("Browser Artifacts:      {}", report.browser_artifacts_found);
+    println!("LNK Files Analyzed:     {}", report.lnk_files_analyzed);
+
+    let high_severity: usize = artifacts
         .iter()
-        .filter(|a| {
-            if let Some(entropy) = a.entropy_score {
-                entropy > 7.5
-            } else {
-                false
-            }
-        })
+        .filter(|a| a.yara_matches.iter().any(|m| m.severity == "high"))
         .count();
 
-    if high_entropy_count > 0 {
+    if high_severity > 0 {
         println!();
         println!(
-            "WARNING: {} files have high entropy (possible encrypted/compressed content)",
-            high_entropy_count
+            "WARNING: {} files with HIGH severity YARA matches!",
+            high_severity
+        );
+    }
+
+    let signature_warnings_count = artifacts.iter().filter(|a| a.signature_warning).count();
+    if signature_warnings_count > 0 {
+        println!();
+        println!(
+            "WARNING: {} files have signature mismatches (possible spoofing)!",
+            signature_warnings_count
+        );
+    }
+
+    let stego_detected: usize = artifacts
+        .iter()
+        .filter(|a| {
+            a.steganography_analysis
+                .as_ref()
+                .map(|s| s.has_hidden_data)
+                .unwrap_or(false)
+        })
+        .count();
+    if stego_detected > 0 {
+        println!();
+        println!(
+            "WARNING: {} files may contain hidden steganographic data!",
+            stego_detected
         );
     }
 }
