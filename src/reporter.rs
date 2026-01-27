@@ -218,6 +218,10 @@ mod tests {
             browser_artifact: None,
             lnk_data: None,
             timeline_events: Vec::new(),
+            mobile_artifact: None,
+            memory_artifact: None,
+            carved_data: None,
+            endpoint_data: None,
         }];
 
         let report = reporter.generate_report(artifacts, temp_dir.path());
@@ -255,12 +259,14 @@ mod tests {
                 event_type: String::from("created"),
                 source: String::from("filesystem"),
                 description: String::from("Test file created"),
+                artifact_type: None,
             },
             TimelineEvent {
                 timestamp: String::from("2024-01-01T11:00:00Z"),
                 event_type: String::from("modified"),
                 source: String::from("filesystem"),
                 description: String::from("Test file modified"),
+                artifact_type: None,
             },
         ];
 

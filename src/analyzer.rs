@@ -186,6 +186,7 @@ impl Analyzer {
                             event_type: String::from("modified"),
                             source: String::from("filesystem"),
                             description: format!("File modified: {}", path.display()),
+                            artifact_type: None,
                         });
                     }
                 }
@@ -220,6 +221,7 @@ impl Analyzer {
                             event_type: String::from("created"),
                             source: String::from("filesystem"),
                             description: format!("File created: {}", path.display()),
+                            artifact_type: None,
                         });
                     }
                 }
@@ -325,6 +327,7 @@ impl Analyzer {
             confidence: if has_hidden { 0.75 } else { 0.0 },
             indicators,
             hidden_bytes_estimate,
+            lsb_indicators: Vec::new(),
         })
     }
 
@@ -349,6 +352,7 @@ impl Analyzer {
                     category: String::from("custom"),
                     severity: String::from(*severity),
                     tags: tags.iter().map(|s| String::from(*s)).collect(),
+                    offset: None,
                 });
             }
         }
@@ -391,6 +395,7 @@ impl Analyzer {
             timestamp: None,
             visit_count: None,
             domain: None,
+            user: None,
         })
     }
 
@@ -410,6 +415,8 @@ impl Analyzer {
                     machine_id: None,
                     volume_serial: None,
                     drive_type: None,
+                    relative_path: None,
+                    icon_location: None,
                 })
             }
             Err(_) => None,
