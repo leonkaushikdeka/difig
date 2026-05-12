@@ -12,6 +12,7 @@ impl EndpointForensics {
     }
 
     pub fn analyze_endpoint(&self, path: &Path) -> Vec<EndpointData> {
+        eprintln!("Warning: Endpoint forensics is a stub implementation and may not produce accurate results");
         let mut endpoints = Vec::new();
 
         if let Ok(entries) = fs::read_dir(path) {
@@ -256,11 +257,11 @@ impl EndpointForensics {
 mod tests {
     use super::*;
     use std::fs;
-    use tempdir::TempDir;
+    use tempfile::Builder;
 
     #[test]
     fn test_process_extraction() {
-        let temp_dir = TempDir::new("difig").unwrap();
+        let temp_dir = Builder::new().prefix("difig").tempdir().unwrap();
         let proc_file = temp_dir.path().join("processes.txt");
         fs::write(
             &proc_file,
@@ -276,7 +277,7 @@ mod tests {
 
     #[test]
     fn test_network_extraction() {
-        let temp_dir = TempDir::new("difig").unwrap();
+        let temp_dir = Builder::new().prefix("difig").tempdir().unwrap();
         let net_file = temp_dir.path().join("network.txt");
         fs::write(
             &net_file,
@@ -294,7 +295,7 @@ mod tests {
 
     #[test]
     fn test_suspicious_detection() {
-        let temp_dir = TempDir::new("difig").unwrap();
+        let temp_dir = Builder::new().prefix("difig").tempdir().unwrap();
         let proc_file = temp_dir.path().join("suspicious.txt");
         fs::write(
             &proc_file,

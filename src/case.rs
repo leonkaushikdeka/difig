@@ -1,5 +1,12 @@
+use aes_gcm::{
+    aead::{Aead, KeyInit},
+    Aes256Gcm, Key, Nonce,
+};
+use base64::engine::general_purpose;
+use base64::Engine;
 use difig::{CaseInfo, CaseNote, CustodyEntry};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::Path;
 
@@ -129,8 +136,55 @@ impl CaseManager {
         Ok(())
     }
 
+    fn derive_key(&self) -> Key<Aes256Gcm> {
+        let key_str = std::env::var("DIFIG_ENCRYPTION_KEY")
+            .unwrap_or_else(|_| String::from("CHANGE_ME_DIFIG_DEFAULT_KEY_32B!"));
+        let hash = Sha256::digest(key_str.as_bytes());
+        *Key::<Aes256Gcm>::from_slice(&hash)
+    }
+
     fn encrypt_data(&self, data: &str) -> String {
-        base64::encode(data.as_bytes())
+        let key = self.derive_key();
+        let cipher = Aes256Gcm::new(&key);
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default();
+        let pid = std::process::id();
+
+        let mut nonce_bytes = [0u8; 12];
+        nonce_bytes[..8].copy_from_slice(&now.as_nanos().to_le_bytes()[..8]);
+        nonce_bytes[8..12].copy_from_slice(&pid.to_le_bytes()[..4]);
+
+        let nonce = Nonce::from_slice(&nonce_bytes);
+        let ciphertext = cipher
+            .encrypt(nonce, data.as_bytes())
+            .expect("encryption failure");
+
+        let mut result = nonce_bytes.to_vec();
+        result.extend_from_slice(&ciphertext);
+        general_purpose::STANDARD.encode(&result)
+    }
+
+    fn decrypt_data(&self, encrypted_data: &str) -> Result<String, String> {
+        let key = self.derive_key();
+        let cipher = Aes256Gcm::new(&key);
+
+        let data = general_purpose::STANDARD.decode(encrypted_data)
+            .map_err(|e| format!("Failed to decode encrypted data: {}", e))?;
+
+        if data.len() < 12 {
+            return Err("Invalid encrypted data: too short".to_string());
+        }
+
+        let (nonce_bytes, ciphertext) = data.split_at(12);
+        let nonce = Nonce::from_slice(nonce_bytes);
+
+        let plaintext = cipher
+            .decrypt(nonce, ciphertext)
+            .map_err(|e| format!("Decryption failed: {}", e))?;
+
+        String::from_utf8(plaintext).map_err(|e| format!("Invalid UTF-8: {}", e))
     }
 
     fn calculate_checksum(&self, data: &str) -> String {
@@ -225,7 +279,7 @@ impl CaseManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempdir::TempDir;
+    use tempfile::Builder;
 
     #[test]
     fn test_create_case() {
@@ -288,7 +342,7 @@ mod tests {
 
     #[test]
     fn test_save_load_case() {
-        let temp_dir = TempDir::new("difig").unwrap();
+        let temp_dir = Builder::new().prefix("difig").tempdir().unwrap();
         let case_file = temp_dir.path().join("case.json");
 
         let manager = CaseManager::new();

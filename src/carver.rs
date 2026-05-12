@@ -2,7 +2,7 @@ use difig::{CarvedData, CarvingSignature};
 use rayon::prelude::*;
 use std::fs;
 use std::io::{Read, Seek};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 pub struct Carver;
 
@@ -163,11 +163,11 @@ impl Carver {
 mod tests {
     use super::*;
     use std::fs;
-    use tempdir::TempDir;
+    use tempfile::Builder;
 
     #[test]
     fn test_carver_basic() {
-        let temp_dir = TempDir::new("difig").unwrap();
+        let temp_dir = Builder::new().prefix("difig").tempdir().unwrap();
         let test_file = temp_dir.path().join("test.bin");
 
         let mut data = Vec::new();

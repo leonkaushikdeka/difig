@@ -82,6 +82,24 @@ impl Reporter {
         }
     }
 
+    fn escape_csv_field(value: &str) -> String {
+        let field = if value.starts_with('=')
+            || value.starts_with('+')
+            || value.starts_with('-')
+            || value.starts_with('@')
+        {
+            format!("'{}", value)
+        } else {
+            value.to_string()
+        };
+        if field.contains(',') || field.contains('"') || field.contains('\n') || field.contains('\r')
+        {
+            format!("\"{}\"", field.replace('"', "\"\""))
+        } else {
+            field
+        }
+    }
+
     pub fn generate_timeline_csv(
         &self,
         timeline: &[TimelineEvent],
@@ -90,10 +108,12 @@ impl Reporter {
         let mut csv = String::from("timestamp,event_type,source,description\n");
 
         for event in timeline {
-            let desc = event.description.replace('"', "\"");
             csv.push_str(&format!(
-                "{},{},{},\"{}\"\n",
-                event.timestamp, event.event_type, event.source, desc
+                "{},{},{},{}\n",
+                Self::escape_csv_field(&event.timestamp),
+                Self::escape_csv_field(&event.event_type),
+                Self::escape_csv_field(&event.source),
+                Self::escape_csv_field(&event.description),
             ));
         }
 
@@ -185,11 +205,11 @@ impl Reporter {
 mod tests {
     use super::*;
     use std::fs;
-    use tempdir::TempDir;
+    use tempfile::Builder;
 
     #[test]
     fn test_report_generation() {
-        let temp_dir = TempDir::new("difig").unwrap();
+        let temp_dir = Builder::new().prefix("difig").tempdir().unwrap();
         let test_file = temp_dir.path().join("test.txt");
         fs::write(&test_file, "test").unwrap();
 
@@ -233,7 +253,7 @@ mod tests {
 
     #[test]
     fn test_report_save() {
-        let temp_dir = TempDir::new("difig").unwrap();
+        let temp_dir = Builder::new().prefix("difig").tempdir().unwrap();
         let output_file = temp_dir.path().join("report.json");
 
         let reporter = Reporter::new();
@@ -249,7 +269,7 @@ mod tests {
 
     #[test]
     fn test_timeline_csv() {
-        let temp_dir = TempDir::new("difig").unwrap();
+        let temp_dir = Builder::new().prefix("difig").tempdir().unwrap();
         let output_file = temp_dir.path().join("timeline.csv");
 
         let reporter = Reporter::new();

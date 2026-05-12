@@ -12,6 +12,7 @@ impl MobileForensics {
     }
 
     pub fn analyze_mobile_backup(&self, path: &Path) -> Vec<MobileArtifact> {
+        eprintln!("Warning: Mobile forensics is a stub implementation and may not produce accurate results");
         let mut artifacts = Vec::new();
 
         if let Ok(entries) = fs::read_dir(path) {
@@ -241,11 +242,11 @@ impl MobileForensics {
 mod tests {
     use super::*;
     use std::fs;
-    use tempdir::TempDir;
+    use tempfile::Builder;
 
     #[test]
     fn test_mobile_sms_extraction() {
-        let temp_dir = TempDir::new("difig").unwrap();
+        let temp_dir = Builder::new().prefix("difig").tempdir().unwrap();
         let sms_file = temp_dir.path().join("sms.txt");
         fs::write(&sms_file, "2024-01-01T10:00:00 From: +1234567890 Hello World\n2024-01-01T10:05:00 To: +0987654321 Test message").unwrap();
 
@@ -259,7 +260,7 @@ mod tests {
 
     #[test]
     fn test_mobile_call_extraction() {
-        let temp_dir = TempDir::new("difig").unwrap();
+        let temp_dir = Builder::new().prefix("difig").tempdir().unwrap();
         let call_file = temp_dir.path().join("calls.txt");
         fs::write(
             &call_file,

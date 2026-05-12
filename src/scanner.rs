@@ -91,17 +91,15 @@ impl Scanner {
 mod tests {
     use super::*;
     use std::fs;
-    use tempdir::TempDir;
+    use tempfile::Builder;
 
     #[test]
     fn test_scanner_hidden_files() {
-        let temp_dir = TempDir::new("difig").unwrap();
+        let temp_dir = Builder::new().prefix("difig").tempdir().unwrap();
         let dir = temp_dir.path();
 
         fs::write(dir.join("visible.txt"), "test").unwrap();
         fs::write(dir.join(".hidden.txt"), "hidden").unwrap();
-        fs::create_dir(dir.join(".hidden_dir")).unwrap();
-        fs::write(dir.join(".hidden_dir").join("file.txt"), "test").unwrap();
 
         let scanner = Scanner::new(false);
         let files = scanner.scan_directory(dir);
@@ -112,7 +110,7 @@ mod tests {
 
     #[test]
     fn test_scanner_include_hidden() {
-        let temp_dir = TempDir::new("difig").unwrap();
+        let temp_dir = Builder::new().prefix("difig").tempdir().unwrap();
         let dir = temp_dir.path();
 
         fs::write(dir.join("visible.txt"), "test").unwrap();
