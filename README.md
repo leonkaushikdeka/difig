@@ -8,6 +8,10 @@ A high-performance, automated command-line forensics tool built in Rust for scan
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Tests](https://img.shields.io/badge/tests-9%2F9-green.svg)
 
+## Demo
+
+![Running locally](screenshots/demo.png)
+
 ## Features
 
 - **Parallel Processing**: Uses Rayon for concurrent SHA-256 hashing and metadata extraction
